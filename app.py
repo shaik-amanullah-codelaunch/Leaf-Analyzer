@@ -6,7 +6,12 @@ import google.generativeai as genai
 from PIL import Image
 
 # Configure the Google Gemini API
-genai.configure(api_key=os.getenv("API_KEY"))
+api_key = os.getenv("API_KEY")
+if not api_key:
+    st.error("API key not found. Please set the API_KEY environment variable.")
+    st.stop()
+
+genai.configure(api_key=api_key)
 
 # Function to load Google Gemini Pro Vision API and get response
 def get_gemini_response(input_image, prompt):
@@ -21,13 +26,10 @@ def get_gemini_response(input_image, prompt):
 def input_image_setup(uploaded_file):
     if uploaded_file is not None:
         bytes_data = uploaded_file.getvalue()
-        image_parts = [
-            {
-                "mime_type": uploaded_file.type,
-                "data": bytes_data
-            }
-        ]
-        return image_parts
+        return [{
+            "mime_type": uploaded_file.type,
+            "data": bytes_data
+        }]
     else:
         raise FileNotFoundError("No file uploaded")
 
@@ -85,7 +87,8 @@ with col2:
 
 input_prompt = """
 Please analyze this leaf image and act as an ayurvedic doctor. Provide the following details:
-
+Leaf Name: Provide the common name of the leaf.
+Scientific Name: Provide the scientific (Latin) name of the leaf.
 Morphological Features: Describe the shape, size, color, vein pattern, and margin characteristics of the leaf.
 Chemical Composition: List any known active compounds such as alkaloids, flavonoids, tannins, and essential oils present in the leaf.
 Medicinal Properties: Identify the therapeutic properties of the leaf, such as antibacterial, antifungal, anti-inflammatory, etc.
@@ -93,12 +96,10 @@ Diseases and Conditions: Specify the diseases and conditions that this leaf is t
 Usage: Provide information on how the leaf is typically prepared and used for medicinal purposes (e.g., teas, poultices, extracts).
 Use the latest botanical databases and research studies to ensure accurate and up-to-date information.
 
-As you are an ayurvedic doctor, finally give a verdict on the input given by the user.
-"""
+As you are an ayurvedic doctor, finally give a verdict on the input given by the user."""
 
 # If submit button is clicked
 if submit:
-    # st.write("Submit button clicked")  # Debug statement
     try:
         if uploaded_file is not None:
             image_data = input_image_setup(uploaded_file)
@@ -109,31 +110,52 @@ if submit:
             st.stop()
 
         response = get_gemini_response(image_data, input_prompt)
-        if response is not None:
-            st.subheader("The Response is")
+        if response is not None and hasattr(response, 'text'):
             response_text = response.text
-
-            # Debug response text
-            # st.write("Debug Response Text:", response_text)
-
-            categories = ["Morphological Features", "Chemical Composition", "Medicinal Properties", "Diseases and Conditions", "Usage", "Verdict"]
-            response_dict = {}
-
-            for category in categories:
-                start_index = response_text.find(category)
-                if start_index != -1:
-                    next_start_index = len(response_text)
-                    for next_category in categories:
-                        next_start = response_text.find(next_category, start_index + len(category))
-                        if next_start != -1 and next_start < next_start_index:
-                            next_start_index = next_start
-                    response_dict[category] = response_text[start_index + len(category) + 1:next_start_index].strip()
-            
-            with st.container():
-                for category, details in response_dict.items():
-                    with st.expander(category):
-                        st.write(details)
         else:
-            st.error("Failed to get a response from the API.")
+            st.error("Failed to get a valid response from the API.")
+            st.stop()
+
+        st.subheader("The Response is")
+
+        leaf_name = "N/A"
+        scientific_name = "N/A"
+        if "Leaf Name" in response_text:
+            leaf_name_start = response_text.find("Leaf Name") + len("Leaf Name:")
+            leaf_name_end = response_text.find("\n", leaf_name_start)
+            leaf_name = response_text[leaf_name_start:leaf_name_end].strip().strip("*")
+
+        if "Scientific Name" in response_text:
+            scientific_name_start = response_text.find("Scientific Name") + len("Scientific Name:")
+            scientific_name_end = response_text.find("\n", scientific_name_start)
+            scientific_name = response_text[scientific_name_start:scientific_name_end].strip().strip("*")
+
+        # Display leaf name and scientific name
+        st.write(f"**Leaf Name**: {leaf_name}")
+        st.write(f"**Scientific Name**: {scientific_name}")
+
+        # Debug response text
+        # st.write("Debug Response Text:", response_text)
+
+        # Parsing response text to extract categories
+        categories = ["Morphological Features", "Chemical Composition", "Medicinal Properties", "Diseases and Conditions", "Usage", "Verdict"]
+        response_dict = {}
+
+
+        for category in categories:
+            start_index = response_text.find(category)
+            if start_index != -1:
+                next_start_index = len(response_text)
+                for next_category in categories:
+                    next_start = response_text.find(next_category, start_index + len(category))
+                    if next_start != -1 and next_start < next_start_index:
+                        next_start_index = next_start
+                response_dict[category] = response_text[start_index + len(category) + 1:next_start_index].strip()
+        
+ 
+        with st.container():
+            for category, details in response_dict.items():
+                with st.expander(category):
+                    st.write(details)
     except Exception as e:
         st.error(f"An error occurred: {e}")
